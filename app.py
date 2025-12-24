@@ -4,7 +4,7 @@ import subprocess
 from datetime import datetime
 from PySide6.QtWidgets import QApplication, QWidget, QMenu
 from PySide6.QtGui import QFont, QAction, QColor, QPainter, QBrush, QFontMetrics, QPen
-from PySide6.QtCore import Qt, QTimer, QPoint
+from PySide6.QtCore import Qt, QTimer, QPoint, QSettings
 
 # ==========================================================
 # ПОЛНЫЙ КОНФИГ - НАСТРОЙ ПОД СЕБЯ
@@ -37,12 +37,22 @@ class FullFeaturedClock(QWidget):
             "Glass Effect": (QColor(0, 0, 0, 100), QColor(255, 255, 255), QColor(255, 255, 255, 50))
         }
 
-        # Установка начальной темы
-        self.bg_color, self.text_color, self.border_color = self.themes["Titan (Dark)"]
+        # Инициализация настроек
+        self.settings = QSettings("MyClockApp", "UltimateClock")
+        
+        # Загрузка сохранённой темы или использование дефолтной
+        saved_theme = self.settings.value("theme", "Titan (Dark)")
+        self.bg_color, self.text_color, self.border_color = self.themes.get(saved_theme, self.themes["Titan (Dark)"])
+        self.current_theme = saved_theme
         
         self.display_time = ""
         self.setFixedSize(USER_CONFIG["W"], USER_CONFIG["H"])
 
+        # Загрузка сохранённой позиции
+        saved_pos = self.settings.value("position")
+        if saved_pos:
+            self.move(saved_pos)
+        
         # Таймер обновления (раз в секунду)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_time)
@@ -55,7 +65,7 @@ class FullFeaturedClock(QWidget):
         new_time = datetime.now().strftime("%H:%M")
         if self.display_time != new_time:
             self.display_time = new_time
-            self.update() # Вызывает перерисовку (paintEvent)
+            self.update()
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -102,6 +112,12 @@ class FullFeaturedClock(QWidget):
         if event.buttons() == Qt.LeftButton and self._drag_pos:
             self.move(event.globalPosition().toPoint() - self._drag_pos)
 
+    def mouseReleaseEvent(self, event):
+        # Сохраняем позицию после перетаскивания
+        if event.button() == Qt.LeftButton:
+            self.settings.setValue("position", self.pos())
+            self._drag_pos = None
+
     # --- КОНТЕКСТНОЕ МЕНЮ ---
     def contextMenuEvent(self, event):
         menu = QMenu(self)
@@ -115,7 +131,10 @@ class FullFeaturedClock(QWidget):
         theme_menu = menu.addMenu("🎨 Выбрать стиль")
         for name in self.themes:
             action = QAction(name, self)
-            # Передача данных через lambda
+            # Добавляем галочку для текущей темы
+            if name == self.current_theme:
+                action.setCheckable(True)
+                action.setChecked(True)
             action.triggered.connect(lambda checked=False, n=name: self.set_theme(n))
             theme_menu.addAction(action)
 
@@ -137,6 +156,9 @@ class FullFeaturedClock(QWidget):
 
     def set_theme(self, name):
         self.bg_color, self.text_color, self.border_color = self.themes[name]
+        self.current_theme = name
+        # Сохраняем выбранную тему
+        self.settings.setValue("theme", name)
         self.update()
 
     # --- ФУНКЦИИ АВТОЗАГРУЗКИ ---
@@ -149,7 +171,7 @@ class FullFeaturedClock(QWidget):
         s_folder = os.path.join(os.environ["APPDATA"], "Microsoft", "Windows", "Start Menu", "Programs", "Startup")
         path_link = os.path.join(s_folder, APP_NAME_LINK)
         
-        # Создание ярлыка через временный VBS-скрипт (самый надежный способ для Win без доп. библиотек)
+        # Создание ярлыка через временный VBS-скрипт
         vbs = (f'Set oWS = WScript.CreateObject("WScript.Shell")\n'
                f'sLinkFile = "{path_link}"\n'
                f'Set oLink = oWS.CreateShortcut(sLinkFile)\n'
@@ -169,6 +191,11 @@ class FullFeaturedClock(QWidget):
         path_link = os.path.join(s_folder, APP_NAME_LINK)
         if os.path.exists(path_link):
             os.remove(path_link)
+
+    def closeEvent(self, event):
+        # Сохраняем позицию при закрытии
+        self.settings.setValue("position", self.pos())
+        event.accept()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
